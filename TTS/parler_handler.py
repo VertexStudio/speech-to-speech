@@ -1,28 +1,26 @@
+import torch._dynamo
+
+torch._dynamo.config.suppress_errors = True  # Suppress TorchDynamo errors
+
 from threading import Thread
 from time import perf_counter
 from baseHandler import BaseHandler
 import numpy as np
 import torch
-from transformers import (
-    AutoTokenizer,
-)
+from transformers import AutoTokenizer
 from parler_tts import ParlerTTSForConditionalGeneration, ParlerTTSStreamer
 import librosa
 import logging
 from rich.console import Console
 from utils.utils import next_power_of_2
-from transformers.utils.import_utils import (
-    is_flash_attn_2_available,
-)
+from transformers.utils.import_utils import is_flash_attn_2_available
 
 torch._inductor.config.fx_graph_cache = True
 # mind about this parameter ! should be >= 2 * number of padded prompt sizes for TTS
 torch._dynamo.config.cache_size_limit = 15
 
 logger = logging.getLogger(__name__)
-
 console = Console()
-
 
 if not is_flash_attn_2_available() and torch.cuda.is_available():
     logger.warn(
@@ -52,7 +50,7 @@ class ParlerTTSHandler(BaseHandler):
         self.device = device
         self.torch_dtype = getattr(torch, torch_dtype)
         self.gen_kwargs = gen_kwargs
-        self.compile_mode = compile_mode
+        self.compile_mode = None
         self.max_prompt_pad_length = max_prompt_pad_length
         self.description = description
 
@@ -65,18 +63,6 @@ class ParlerTTSHandler(BaseHandler):
         framerate = self.model.audio_encoder.config.frame_rate
         self.play_steps = int(framerate * play_steps_s)
         self.blocksize = blocksize
-
-        if self.compile_mode not in (None, "default"):
-            logger.warning(
-                "Torch compilation modes that captures CUDA graphs are not yet compatible with the TTS part. Reverting to 'default'"
-            )
-            self.compile_mode = "default"
-
-        if self.compile_mode:
-            self.model.generation_config.cache_implementation = "static"
-            self.model.forward = torch.compile(
-                self.model.forward, mode=self.compile_mode, fullgraph=True
-            )
 
         self.warmup()
 
@@ -149,7 +135,7 @@ class ParlerTTSHandler(BaseHandler):
     def process(self, llm_sentence):
         if isinstance(llm_sentence, tuple):
             llm_sentence, _ = llm_sentence
-            
+
         console.print(f"[green]ASSISTANT: {llm_sentence}")
         nb_tokens = len(self.prompt_tokenizer(llm_sentence).input_ids)
 
